@@ -8,7 +8,7 @@
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 800px;
+            max-width: 100%;
             margin: 0 auto;
             padding: 20px;
             color: #333;
@@ -19,19 +19,22 @@
             text-align: center;
             color: #2c3e50;
             margin-bottom: 30px;
+            font-size: 24px;
         }
         
         .container {
             background-color: white;
             border-radius: 8px;
-            padding: 30px;
+            padding: 20px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            max-width: 800px;
+            margin: 0 auto;
         }
         
         .upload-area {
             border: 2px dashed #3498db;
             border-radius: 5px;
-            padding: 30px;
+            padding: 20px;
             text-align: center;
             margin-bottom: 20px;
             cursor: pointer;
@@ -47,6 +50,12 @@
             color: #7f8c8d;
         }
         
+        .upload-icon {
+            font-size: 48px;
+            color: #3498db;
+            margin-bottom: 10px;
+        }
+        
         .btn {
             background-color: #3498db;
             color: white;
@@ -57,6 +66,7 @@
             font-size: 16px;
             transition: background-color 0.3s;
             display: inline-block;
+            margin: 5px;
         }
         
         .btn:hover {
@@ -84,6 +94,22 @@
             display: flex;
             justify-content: space-between;
             margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        
+        @media (max-width: 600px) {
+            .settings-row {
+                flex-direction: column;
+            }
+            
+            .settings-row label {
+                margin-bottom: 5px;
+            }
+            
+            .btn {
+                width: 100%;
+                margin: 5px 0;
+            }
         }
         
         .preview-area {
@@ -106,6 +132,7 @@
             background-color: white;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
             width: 200px;
+            max-width: 100%;
         }
         
         .preview-item img {
@@ -188,6 +215,12 @@
             border: 1px solid #c3e6cb;
             border-radius: 5px;
         }
+        
+        select {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
     </style>
 </head>
 <body>
@@ -195,12 +228,13 @@
         <h1>PDF to HD Image Converter</h1>
         
         <div class="upload-area" id="upload-area">
-            <img src="/api/placeholder/64/64" alt="Upload Icon" />
+            <!-- Using a Unicode icon instead of an image -->
+            <div class="upload-icon"></div>
             <h3>Drag & Drop your PDF here</h3>
             <p>or</p>
             <label for="file-input" class="btn">Browse Files</label>
             <input type="file" id="file-input" accept=".pdf" />
-            <p class="file-info">Maximum file size: 20MB</p>
+            <p class="file-info">Upload any PDF file</p>
         </div>
         
         <div class="settings">
@@ -271,6 +305,11 @@
         uploadArea.addEventListener('drop', handleDrop);
         downloadAllBtn.addEventListener('click', downloadAllImages);
         
+        // Add JSZip library
+        const jsZipScript = document.createElement('script');
+        jsZipScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+        document.body.appendChild(jsZipScript);
+        
         // Functions
         function showMessage(message, type) {
             messageElement.textContent = message;
@@ -320,10 +359,7 @@
                 return;
             }
             
-            if (file.size > 20 * 1024 * 1024) {
-                showMessage('File size exceeds 20MB limit.', 'error');
-                return;
-            }
+            // Removed file size validation
             
             pdfFile = file;
             convertedImages = [];
@@ -345,59 +381,70 @@
                 const pdfData = new Uint8Array(arrayBuffer);
                 
                 // Load the PDF document
-                const pdfDocument = await pdfjsLib.getDocument({data: pdfData}).promise;
+                const loadingTask = pdfjsLib.getDocument({data: pdfData});
+                const pdfDocument = await loadingTask.promise;
                 const numPages = pdfDocument.numPages;
                 
                 progressText.textContent = `Converting 0 of ${numPages} pages...`;
                 
                 for (let i = 1; i <= numPages; i++) {
-                    const page = await pdfDocument.getPage(i);
-                    
-                    // Get the scale based on quality selection
-                    const scale = parseFloat(imageQuality.value);
-                    const viewport = page.getViewport({scale: scale});
-                    
-                    // Prepare canvas for rendering
-                    const canvas = document.createElement('canvas');
-                    const context = canvas.getContext('2d');
-                    canvas.height = viewport.height;
-                    canvas.width = viewport.width;
-                    
-                    // Render PDF page to canvas
-                    const renderContext = {
-                        canvasContext: context,
-                        viewport: viewport
-                    };
-                    
-                    await page.render(renderContext).promise;
-                    
-                    // Convert canvas to image
-                    const format = imageFormat.value;
-                    const imageData = canvas.toDataURL(`image/${format}`, format === 'jpeg' ? 0.9 : 1.0);
-                    
-                    convertedImages.push({
-                        pageNum: i,
-                        data: imageData,
-                        format: format
-                    });
-                    
-                    // Update progress
-                    progressBar.style.width = `${(i / numPages) * 100}%`;
-                    progressText.textContent = `Converting ${i} of ${numPages} pages...`;
-                    
-                    // Add to preview area
-                    addImagePreview(imageData, i, format);
+                    // Handle large PDFs - process in batches if needed
+                    try {
+                        const page = await pdfDocument.getPage(i);
+                        
+                        // Get the scale based on quality selection
+                        const scale = parseFloat(imageQuality.value);
+                        const viewport = page.getViewport({scale: scale});
+                        
+                        // Prepare canvas for rendering
+                        const canvas = document.createElement('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.height = viewport.height;
+                        canvas.width = viewport.width;
+                        
+                        // Render PDF page to canvas
+                        const renderContext = {
+                            canvasContext: context,
+                            viewport: viewport
+                        };
+                        
+                        await page.render(renderContext).promise;
+                        
+                        // Convert canvas to image
+                        const format = imageFormat.value;
+                        const quality = format === 'jpeg' ? 0.9 : 1.0;
+                        const imageData = canvas.toDataURL(`image/${format}`, quality);
+                        
+                        convertedImages.push({
+                            pageNum: i,
+                            data: imageData,
+                            format: format
+                        });
+                        
+                        // Update progress
+                        progressBar.style.width = `${(i / numPages) * 100}%`;
+                        progressText.textContent = `Converting ${i} of ${numPages} pages...`;
+                        
+                        // Add to preview area
+                        addImagePreview(imageData, i, format);
+                        
+                        // Give the browser a chance to breathe
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    } catch (pageError) {
+                        console.error(`Error processing page ${i}:`, pageError);
+                        showMessage(`Warning: Page ${i} could not be processed. Continuing...`, 'error');
+                    }
                 }
                 
                 previewArea.style.display = 'block';
                 loader.style.display = 'none';
-                progressText.textContent = `Converted ${numPages} pages successfully!`;
-                showMessage('PDF conversion completed successfully!', 'success');
+                progressText.textContent = `Converted ${convertedImages.length} of ${numPages} pages successfully!`;
+                showMessage('PDF conversion completed!', 'success');
                 
             } catch (error) {
                 console.error('Error converting PDF:', error);
                 loader.style.display = 'none';
-                showMessage('Error converting PDF. Please try again.', 'error');
+                showMessage('Error converting PDF: ' + (error.message || 'Unknown error'), 'error');
             }
         }
         
@@ -430,13 +477,26 @@
             const link = document.createElement('a');
             link.href = dataUrl;
             link.download = filename;
+            link.target = '_blank'; // For mobile browsers
             document.body.appendChild(link);
             link.click();
-            document.body.removeChild(link);
+            
+            // Some mobile browsers need time to process the click
+            setTimeout(() => {
+                document.body.removeChild(link);
+            }, 100);
         }
         
         function downloadAllImages() {
             if (convertedImages.length === 0) return;
+            
+            showMessage('Preparing ZIP file for download...', 'success');
+            
+            // Make sure JSZip is loaded
+            if (typeof JSZip === 'undefined') {
+                showMessage('ZIP library not loaded. Please try again in a moment.', 'error');
+                return;
+            }
             
             const zip = new JSZip();
             const format = imageFormat.value;
@@ -453,9 +513,18 @@
                 const link = document.createElement('a');
                 link.href = URL.createObjectURL(content);
                 link.download = `pdf-images-${Date.now()}.zip`;
+                link.target = '_blank'; // For mobile browsers
                 document.body.appendChild(link);
                 link.click();
-                document.body.removeChild(link);
+                
+                // Some mobile browsers need time to process the click
+                setTimeout(() => {
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(link.href); // Free up memory
+                }, 100);
+            }).catch(error => {
+                console.error('Error creating ZIP:', error);
+                showMessage('Error creating ZIP file. Try downloading images individually.', 'error');
             });
         }
         
@@ -467,11 +536,6 @@
                 reader.readAsArrayBuffer(file);
             });
         }
-
-        // Add JSZip library for downloading all images
-        const jsZipScript = document.createElement('script');
-        jsZipScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
-        document.body.appendChild(jsZipScript);
     </script>
 </body>
 </html>
